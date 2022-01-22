@@ -1,0 +1,152 @@
+﻿STUDENTS
+10537082, Federico Novaro
+10745779, Giovanni Porcellato
+10799907, Francesco Sacchi
+
+
+NODES
+
+
+sync_pub.cpp
+This node subscribes to the topics "motor_speed_fl", "motor_speed_rr" and "scout_odom",
+synchronizes the three messages and publishes on the custom message "pre_speed" the velocities 
+of a left wheel, a right wheel, and the estimation of linear and angular velocities given by 
+the in-built odometry. The speed of the two wheels on the same side are considered equal.
+
+
+lin_ang.cpp
+This node subscribes to the topic "pre_speed", created in "sync_pub", and publishes on the topic
+"lin_ang" a message "TwistStamped" with the linear and angular velocities of the robot. These are
+obtained by computations in which the baseline and the gear ratio are obtained by hand.
+
+
+ERK.cpp
+This node subscribes to the topic "lin_ang" and publishes two messages on two different topics.
+The topic "robot_odom" contains the odometry computed by using either Euler or Runge-Kutta method.
+The node also contains the dynamic reconfigure to select in real-time the integration method.
+The topic "method" contains the selected integration method. The initial pose for the odometry 
+is taken by three parameters defined in the launch file, that can be manually changed from there.
+Moreover it includes 2 services, reinit_pose and reselect_pose. While reinit_pose initialize te pose to 0,0,0 (set position to 0, 0 and the yaw angle theta to 0 deg too), reselect_pose allows you to redefine a pose for your robot using the cordinate x and y for the position and theta as the yaw angle orientation.
+
+
+final_message.cpp
+This node subscribes to two topics: "robot_odom", containing the computed odometry of the robot,
+and "method", containing the integration method defined by dynamic reconfigure in the node "ERK".
+Then, the node publishes on the topic "final_chatter" a custom message, called "MethodMessage"
+where the previous two are merged (TASK 4)
+
+
+
+MESSAGES
+
+
+pre_speed.msg
+
+Structure:
+float64 FL
+float64 RR
+float64 lin
+float64 ang
+
+Message used in the node "sync_pub.cpp" to synchronize and publish the measured velocities of the
+left and right wheels, as well as the linear and angular velocities estimated by scout_odom.
+
+
+MethodMessage.msg
+
+Structure:
+Header header
+string child_frame_id
+geometry_msgs/PoseWithCovariance pose
+geometry_msgs/TwistWithCovariance twist
+string method
+
+Message used in the "final_message" node to publish the odometry and the integration method together.
+
+
+
+PARAMETERS
+
+
+We defined a list of parameters, inside the launcher file, called “initialPosition” through rosparam.
+It represents the initial pose for the computation of the odometry in a single vector, hence it is retrieved by the "ERK" node on (lines 152-156). 
+Initial position is defined by x and y, while theta represents the yaw angle orientation.
+
+
+
+TF
+
+
+world->odom->base_link
+
+We've defined two different TF transformation in our project: the first is the static transformation between the world and the odom reference frame (in the launcher.launch file), while the second is the dynamic TF transformation between the odom and the base link reference frame (in the ERK.cpp script).
+The static TF transformation in the launcher relates the odom ref. frame (referring to our odometry) with world ref. frame (referring to the real-world position in space) with respect to the gt_pose initial pose for bag1. For bag2 and bag3 you'll have to set the transformation in the launcher as:
+        bag2 -0.4864 0.4426 0.5779 -0.0571 -0.1685 0.8408 0.5113        
+        bag3 -0.8524 0.0676 0.3228 0.0353 0.0618 -0.5834 0.8114
+(these values have to be taken into account with caution since at early stages there may be some issues with the gt_pose)
+
+The dynamic transformation on the other hand relates the odom ref. frame to the base_link ref. frame (positioned in the kinematic center of the robot) in real time, as reported in ERK.cpp - rows 82 to 93. 
+
+
+
+HOW TO
+
+
+LAUNCH GLOBAL PACKAGE
+-Set the parameters in the launch file to the values specified in TF paragraph, to have the right
+static transformation depending on the bag
+-roslaunch project1 launcher.launch
+-cd to BAG folder
+-rosbag play --clock "NAME OF THE BAG"
+-"custom" topics and their content: 
+  - pre_speed: velocities of the left and right wheels, linear and angular velocities estimated by scout_odom all synchronized
+  - lin_ang: computed linear and angular velocity
+  - robot_odom: computed odometry
+  - method: integration method
+  - final_chatter: computed odometry + integration method -> final result
+-rosrun rqt_reconfigure rqt_reconfigure to change integration method
+-rosservice call reinit_pose to set the pose to 0 / rosservice call reselect_pose X Y Theta to set the pose to X, Y, Theta
+
+LAUNCH NODE BY NODE
+-rosrun project1 sync_pub -> rostopic echo pre_speed
+-rosrun project1 lin_ang -> rostopic echo lin_ang
+-rosrun project1 ERK -> rostopic echo robot_odom and rostopic echo method
+-rosrun project1 final_message -> rostopic echo final_message
+  -rosrun rqt_reconfigure rqt_reconfigure
+  -rosservice call reinit_pose or reselect_pose 
+
+
+SOME INFO
+
+When typing and launching the command rqt_reconfigure as to start the dynamic reconfigure, it may happen that the default page is hidden below the other open windows.
+
+The computed odometry is quite close to the one given by scout_odom. In particular, from RVIZ we can see that the path has a very similar shape, although it goes further and further as the time goes on,
+due to the approximation of the integration methods (error drift).
+
+The apparent baselie and the gear ratio have been estimated by looking at the topic published by sync_pub.cpp, we have selected the values with the highest signal-to-noise ratio (high linear speed and low angular speed for the gear ratio and viceversa high angular speed and low linear speed for the apparent baseline) to perform the estimation. 
+First we have estimated the gear ratio (rho) using the formula
+
+		            vx*2*60
+		rho= ----------------------
+		      (ome_r+ome_l)*r*2*pi
+
+where ome_r and ome_l are the angular speed of the shaft of the motors on the right and left side (the left' sign has been changed since the disposition of the motors on the left are inverted wrt their manufacturer orientation), r is the radius of the wheel, vx is the linear speed from scout_odom and the term 2pi/60 is the conversion factor from rpm to rad/s.
+Then using the gear ratio to estimate the speed of the left and the right wheel we can estimate the apparent baseline (2y0) using the formula
+
+	       -vl+vr	   -ome_l+ome_r		2*pi
+	2y0 = --------- = -------------- rho*r ------
+	        ome_z	       ome_z		 60
+		
+having the same quantities defined before and ome_z as the angular velocity from scout_odom.
+The estimates has been performed evaluating 15 samples from bag1 for the gear ratio and 30 samples from both bag1 and bag2 for the apparent baseline, bag3 has been left for further verifications. The results are the one reported in the table below
+
+				   |      MEAN      |    DEV_STD   |
+		___________________|________________|______________|
+                                   |		    |              |
+		     Gear Ratio    |    0.02614     |    0.00032   |
+                ___________________|________________|______________|
+                                   |                |              |
+                 Apparent Baseline |    1.03825     |    0.03121   |
+                ___________________|________________|______________|
+
+Using the static transform relating the odom ref frame to the world reference frame and then comparing the odometry we derived with the gt_pose signal we have tried to further improve our estimation. We intended to retrieve the radius of the first rotation from gt_pose in order to compare it with the one from our odometry and refine our estimate, unfortunately we didn't succeed in our intent.

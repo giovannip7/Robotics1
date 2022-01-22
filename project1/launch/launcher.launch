@@ -1,0 +1,12 @@
+<launch>
+
+      <rosparam param = "initialPosition">[0, 0, 0]</rosparam>
+      
+
+      <node pkg="tf" type="static_transform_publisher" name="staticTr_broadcaster" args="-0.6153 	0.4076 0.3304 -0.0078 .0201 .6441 .7646 world odom 15.38" />
+
+      <node pkg="project1" type="sync_pub" name="subscriber_sync" />
+      <node pkg="project1" type="lin_ang" name="subscribe_and_publish" />
+      <node pkg="project1" type="ERK" name="Euler_RK" />   
+      <node pkg="project1" type="final_message" name="final_message" />   
+</launch>
